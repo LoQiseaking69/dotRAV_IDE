@@ -91,3 +91,44 @@ def test_tulpa_client_over_mutual_tls(pki, tmp_path):
         srv.stop()
     assert r.returncode == 0, r.stdout + r.stderr
     assert r.stdout.strip() == "TLSv1_3 1 true"
+
+
+def test_serve_refuses_plaintext_beyond_loopback(tmp_path, capsys):
+    from tulpa_bridge.runner import serve_cosim
+    m = tmp_path / "m.xml"
+    m.write_text(MODEL)
+    assert serve_cosim(str(m), "0.0.0.0", 0, quiet=True) == 2
+    assert "needs TLS" in capsys.readouterr().err
+    assert serve_cosim(str(m), "127.0.0.1", 0, tls_cert=str(m), quiet=True) == 2
+
+
+@needs_openssl
+def test_serve_answers_tls_clients(pki, tmp_path):
+    import json
+    import socket
+    import threading
+
+    from tulpa_bridge.runner import serve_cosim
+    m = tmp_path / "m.xml"
+    m.write_text(MODEL)
+    addr: list[str] = []
+    ready = threading.Event()
+    stop = threading.Event()
+    t = threading.Thread(target=serve_cosim, kwargs=dict(
+        model=str(m), host="127.0.0.1", port=0, tls_cert=str(pki / "srv.pem"), tls_key=str(pki / "srv.key"),
+        quiet=True, ready=lambda a: (addr.append(a), ready.set()), stop=stop), daemon=True)
+    t.start()
+    assert ready.wait(10)
+    assert addr[0].startswith("tls://127.0.0.1:")
+    port = int(addr[0].rsplit(":", 1)[1])
+    ctx = ssl.create_default_context(cafile=str(pki / "ca.pem"))
+    ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT   # the test CA is minimal (no keyUsage)
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as raw, \
+            ctx.wrap_socket(raw, server_hostname="localhost") as s:
+        assert s.version() == "TLSv1.3"
+        s.sendall(b'{"id":1,"method":"info","params":{}}\n')
+        reply = json.loads(s.makefile().readline())
+        assert reply["result"]["nu"] == 1
+    stop.set()
+    t.join(5)
+    assert not t.is_alive()
