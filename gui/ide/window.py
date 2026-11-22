@@ -258,6 +258,9 @@ class IdeWindow(QMainWindow):
         self.logs = LogTab()
         self.simpanel = SimPanel(self.simulation, self.runs)
         self.sensors = SensorTab(self.simulation)
+        from gui.ide.robotics_panel import RoboticsPanel
+        self.robotics = RoboticsPanel(self.simulation)
+        self.robotics.status.connect(lambda m: self.statusBar().showMessage(m, 4000))
 
         self.d_explorer = self._dock("Explorer", self.tree, Qt.LeftDockWidgetArea)
         self.d_outline = self._dock("Outline", self.outline, Qt.LeftDockWidgetArea)
@@ -265,6 +268,8 @@ class IdeWindow(QMainWindow):
         self.d_sim = self._dock("Simulator", self.simpanel, Qt.RightDockWidgetArea)
         self.d_sensors = self._dock("Sensors", self.sensors, Qt.RightDockWidgetArea)
         self.tabifyDockWidget(self.d_sim, self.d_sensors)
+        self.d_robotics = self._dock("Robotics", self.robotics, Qt.RightDockWidgetArea)
+        self.tabifyDockWidget(self.d_sim, self.d_robotics)
         self.d_sim.raise_()
         self.d_console = self._dock("Console", self.console, Qt.BottomDockWidgetArea)
         self.d_terminal = self._dock("Tulpa Terminal", self.terminal, Qt.BottomDockWidgetArea)
@@ -327,6 +332,11 @@ class IdeWindow(QMainWindow):
         if menu is not None:
             menu.addAction(a)
         return a
+
+    def _show_robotics(self, tab: int) -> None:
+        self.d_robotics.show()
+        self.d_robotics.raise_()
+        self.robotics.tabs.setCurrentIndex(tab)
 
     def _build_actions(self) -> None:
         mb = self.menuBar()
@@ -391,8 +401,23 @@ class IdeWindow(QMainWindow):
         self._act(s, "Reset Model", self._reset_model, "F8")
         self._act(s, "Single Step", lambda: self.simulation.single_step())
 
+        rob = mb.addMenu("Ro&botics")
+        self._act(rob, "Load Model (MJCF/URDF)…", self.open_model_dialog)
+        self._act(rob, "Start Simulation", self._free_run)
+        self._act(rob, "Stop Simulation", lambda: self.simulation.stop())
+        self._act(rob, "Inspect Robot", lambda: self._show_robotics(0), "Ctrl+Alt+I")
+        self._act(rob, "Validate Model", lambda: (self._show_robotics(0), self.robotics.validate()), "Ctrl+Alt+M")
+        self._act(rob, "Joint and Actuator Controls", lambda: self._show_robotics(1))
+        self._act(rob, "Physics Settings", lambda: self._show_robotics(2))
+        rob.addSeparator()
+        self._act(rob, "Take Snapshot", lambda: (self._show_robotics(3), self.robotics.take_snapshot()), "Ctrl+Alt+N")
+        self._act(rob, "Start / Stop Recording", lambda: (self._show_robotics(3), self.robotics.rec_btn.toggle()), "Ctrl+Alt+R")
+        self._act(rob, "Export Simulation Data (CSV)…", lambda: (self._show_robotics(3), self.robotics._export()))
+        rob.addSeparator()
+        self._act(rob, "RL Experiments", lambda: (self._show_robotics(4), self.robotics.load_experiments()))
+
         v = mb.addMenu("&View")
-        for d in (self.d_explorer, self.d_outline, self.d_sim, self.d_sensors, self.d_console,
+        for d in (self.d_explorer, self.d_outline, self.d_sim, self.d_sensors, self.d_robotics, self.d_console,
                   self.d_terminal, self.d_problems, self.d_proofs, self.d_plots, self.d_network, self.d_logs):
             v.addAction(d.toggleViewAction())
         v.addSeparator()
