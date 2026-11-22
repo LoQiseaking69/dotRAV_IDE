@@ -18,6 +18,7 @@ import json
 import logging
 import socket
 import socketserver
+import ssl
 import threading
 import time
 from typing import Any, Callable, Optional
@@ -431,6 +432,13 @@ class CoSimSession:
 
 
 class _Handler(socketserver.StreamRequestHandler):
+    def setup(self) -> None:
+        if isinstance(self.request, ssl.SSLSocket):
+            self.request.settimeout(10)
+            self.request.do_handshake()     # raises on a bad client; socketserver logs and drops it
+            self.request.settimeout(None)
+        super().setup()
+
     def handle(self) -> None:  # noqa: D401
         server: CoSimServer = self.server  # type: ignore[assignment]
         server.client_connected()
@@ -471,15 +479,30 @@ class _Handler(socketserver.StreamRequestHandler):
         self.wfile.flush()
 
 
+def tls_context(cert: str, key: str, client_ca: Optional[str] = None) -> "ssl.SSLContext":
+    """TLS 1.3-only server context; with `client_ca`, clients must present a certificate (mTLS)."""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_3
+    ctx.load_cert_chain(cert, key)
+    if client_ca:
+        ctx.verify_mode = ssl.CERT_REQUIRED
+        ctx.load_verify_locations(client_ca)
+    return ctx
+
+
 class CoSimServer(socketserver.ThreadingTCPServer):
     """TCP server hosting one :class:`CoSimSession`. Bind port 0 for an ephemeral port."""
 
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, session: CoSimSession, host: str = "127.0.0.1", port: int = 0) -> None:
+    def __init__(self, session: CoSimSession, host: str = "127.0.0.1", port: int = 0,
+                 tls: Optional["ssl.SSLContext"] = None) -> None:
+        if tls is None and host not in ("127.0.0.1", "localhost", "::1"):
+            raise ValueError("co-sim server: binding beyond loopback needs TLS (pass tls=tls_context(...))")
         super().__init__((host, port), _Handler)
         self.session = session
+        self.tls = tls
         self.clients = 0
         self._thread: Optional[threading.Thread] = None
 
@@ -487,10 +510,17 @@ class CoSimServer(socketserver.ThreadingTCPServer):
         self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         super().server_bind()
 
+    def get_request(self):  # TLS 1.3 handshake per connection when configured
+        sock, addr = super().get_request()
+        if self.tls is not None:
+            # handshake on the handler thread, so a slow or bad client can't stall accept()
+            sock = self.tls.wrap_socket(sock, server_side=True, do_handshake_on_connect=False)
+        return sock, addr
+
     @property
     def address(self) -> str:
         host, port = self.server_address[:2]
-        return f"{host}:{port}"
+        return f"{'tls://' if self.tls else ''}{host}:{port}"
 
     def client_connected(self) -> None:
         self.clients += 1
