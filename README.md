@@ -109,7 +109,7 @@ You can point .RAV IDE at a specific toolchain with `TULPA_BIN`, or under *Setti
 ### Building the Windows installer
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File installer\windows\build.ps1 -TulpaSrc ..\Tulpa -Version 2.4.0
+powershell -ExecutionPolicy Bypass -File installer\windows\build.ps1 -TulpaSrc ..\Tulpa -Version 2.5.0
 ```
 
 The script:
