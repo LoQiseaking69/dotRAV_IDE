@@ -32,12 +32,14 @@ The bundled **Morty** project rewrites the
 | **Network (Tulpa 3.4)** | The **Network** dock shows the Tulpa Link nodes on your LAN, with the topics they publish and subscribe to and the services they offer. |
 | **The whole language on a microcontroller (Tulpa 3.5)** | **Build Firmware for Board…** takes any program: one that fits the static compiler becomes native code, and any other is built onto the Tulpa VM for firmware (the build output says which). **Run ▸ Run on the Firmware VM** (Ctrl+Alt+F5) builds that same VM for the simulated board and runs it, so you see exactly what the board will do. **Run ▸ Link Bridge to Board…** runs `tulpa link bridge` on a serial port (Linux), and a board whose Tulpa Link node uses its UART then shows up in the **Network** dock. The bundled **Firmware VM lab** project has a rover with a behaviour tree, a state machine and a node, with configurations for all three. |
 | **Autonomy lab** | A second bundled project (next to Morty): mission planning and replanning, Tulpa Link on a simulated lossy network, a rover simulated through emulated chips and the real drivers, and contracts to prove. Open it from the Welcome page. |
-| **Co-simulation** | One ▶ Run button runs the selected target (the current file or a project configuration); programs that call `cosim::connect()` start a MuJoCo session automatically. Each `sim.step(ctrl, n)` applies controls, advances physics and returns an observation: joints, sensors, COM, contacts. You can run as fast as possible or at real time ×N and shove bodies from the UI. The viewport shows the floor stage even before a model loads, and frames each model automatically (double-click or ⌖ Frame to re-frame). |
+| **Co-simulation** | One ▶ Run button runs the selected target (the current file or a project configuration); programs that call `cosim::connect()` start a MuJoCo session automatically. Each `sim.step(ctrl, n)` applies controls, advances physics and returns an observation: joints, sensors, COM, contacts. You can run as fast as possible or at real time ×N and shove bodies from the UI. The server speaks co-simulation protocol 2 (`capabilities get set state restore option set_option jacobian mass_matrix inverse contacts scene`), so Tulpa's typed `std/mujoco` API works the same here as on Tulpa's native MuJoCo backend. The viewport shows the floor stage even before a model loads, and frames each model automatically (double-click or ⌖ Frame to re-frame). |
+| **Robotics (Tulpa robotics ecosystem)** | The **Robotics** dock and menu work on the loaded model. **Model** lists joints, actuators, sensors, bodies and sites, and **Validate** reports empty ranges, `ctrllimited` without a `ctrlrange` and actuators on missing joints. **Control** has sliders for every joint and actuator. **Physics** sets the timestep, gravity, integrator and solver iterations. **Record** captures trajectories with replay, CSV export and exact snapshots. **Experiments** browses `rl.Experiment` runs and plots their metrics. The Tulpa language server adds model-aware completion, hover, diagnostics and go-to-definition for joint, actuator, sensor and body names. |
+| **Remote co-simulation over TLS 1.3** | `python -m tulpa_bridge serve --model m.xml --host 0.0.0.0 --tls-cert server.pem --tls-key server.key` hosts the simulator for programs on other machines, which connect with `cosim::connect("tls://host:7000", {"ca": ...})`. Add `--client-ca` to require client certificates. The server refuses to listen beyond loopback without TLS. |
 | **Live telemetry** | `tlm::plot("name", v)` streams to pyqtgraph plots. `tlm::status` drives the status bar. `tlm::artifact` links files the program produced. |
 | **Waveform viewer** | Opens VCD files written by `std/rtl` (or Verilog simulators), with zoom, pan, a cursor and signal filtering. |
 | **State-machine diagrams** | Renders every `machine` in the current file. |
 | **BOM / netlist viewer** | Tables for the CSV/JSON that `std/eda` exports. |
-| **Headless CLI** | `python -m tulpa_bridge run prog.rav --model m.xml` (or `ravide-cli` in the installed build) for CI. |
+| **Headless CLI** | `python -m tulpa_bridge run prog.rav --model m.xml` (or `ravide-cli` in the installed build) for CI; `serve` hosts a co-simulator for remote programs; `doctor` checks the toolchain. |
 | **Classic viewer** | The original model viewer and model-builder wizard are still available with `--classic`. |
 
 <p>
@@ -99,6 +101,7 @@ cd rav-ide
 pip install -r requirements.txt
 python main.py                                   # IDE  (python main.py --classic for the old viewer)
 python -m tulpa_bridge doctor                    # toolchain / MuJoCo check
+python -m tulpa_bridge serve --model m.xml       # co-simulator on 127.0.0.1:7000 (add --host/--tls-* for remote)
 ```
 
 You can point .RAV IDE at a specific toolchain with `TULPA_BIN`, or under *Settings ▸ Tulpa Toolchain*.
@@ -106,7 +109,7 @@ You can point .RAV IDE at a specific toolchain with `TULPA_BIN`, or under *Setti
 ### Building the Windows installer
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File installer\windows\build.ps1 -TulpaSrc ..\Tulpa -Version 2.4.0
+powershell -ExecutionPolicy Bypass -File installer\windows\build.ps1 -TulpaSrc ..\Tulpa -Version 2.5.0
 ```
 
 The script:

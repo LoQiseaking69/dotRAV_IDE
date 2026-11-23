@@ -3,6 +3,9 @@
     python -m tulpa_bridge run workspace/morty/main.rav --model models/morty.xml
     python -m tulpa_bridge run prog.rav --model m.xml --realtime 1 --timeout 120
     python -m tulpa_bridge exec prog.rav            # plain run, no simulator
+    python -m tulpa_bridge serve --model m.xml --host 0.0.0.0 --port 7000 \
+        --tls-cert server.pem --tls-key server.key [--client-ca clients.pem]
+                                                    # co-simulator for remote programs (TLS 1.3)
     (arguments after `--` are passed to the program as ARGS)
 """
 
@@ -165,6 +168,47 @@ def selftest_cosim(tc: Optional[toolchain.Toolchain] = None, timeout: float = 30
         return False, f"{why}: {text.strip()[-800:] or '(no output)'}"
 
 
+def serve_cosim(model: str, host: str, port: int, realtime: float = 0.0,
+                tls_cert: Optional[str] = None, tls_key: Optional[str] = None,
+                client_ca: Optional[str] = None, quiet: bool = False,
+                ready: Optional[Callable[[str], None]] = None,
+                stop: Optional[threading.Event] = None) -> int:
+    """Hosts a co-simulator for programs on other machines. Beyond loopback it needs TLS."""
+    from physics_engine.engine import PhysicsEngine
+    from tulpa_bridge.cosim_server import CoSimServer, CoSimSession, tls_context
+
+    if bool(tls_cert) != bool(tls_key):
+        print("error: give both --tls-cert and --tls-key", file=sys.stderr)
+        return 2
+    if client_ca and not tls_cert:
+        print("error: --client-ca needs --tls-cert and --tls-key", file=sys.stderr)
+        return 2
+    engine = PhysicsEngine()
+    engine.load_model_from_path(model)
+    session = CoSimSession(engine, realtime=realtime)
+    if not quiet:
+        session.on_notify = lambda m, p: print(f"[sim:{m}] {p}", file=sys.stderr)
+    try:
+        tls = tls_context(tls_cert, tls_key, client_ca) if tls_cert else None
+        server = CoSimServer(session, host=host, port=port, tls=tls).start()
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"[ravide] co-simulating {Path(model).name} on {server.address}"
+          f"{' (mutual TLS)' if client_ca else ''}", file=sys.stderr, flush=True)
+    if ready:
+        ready(server.address)
+    stop = stop or threading.Event()
+    try:
+        while not stop.wait(0.5):
+            pass
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.stop()
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     for stream in (sys.stdout, sys.stderr):  # Windows consoles default to cp1252
         try:
@@ -181,6 +225,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     r.add_argument("--quiet", action="store_true")
     e = sub.add_parser("exec", help="run a Tulpa program without a simulator")
     e.add_argument("script")
+    sv = sub.add_parser("serve", help="host a co-simulator for Tulpa programs on other machines")
+    sv.add_argument("--model", required=True)
+    sv.add_argument("--host", default="127.0.0.1", help="address to bind; beyond loopback needs TLS")
+    sv.add_argument("--port", type=int, default=7000)
+    sv.add_argument("--realtime", type=float, default=0.0)
+    sv.add_argument("--tls-cert", help="PEM certificate chain (enables TLS 1.3)")
+    sv.add_argument("--tls-key", help="PEM private key")
+    sv.add_argument("--client-ca", help="PEM CA bundle; clients must present a certificate it signed")
+    sv.add_argument("--quiet", action="store_true")
     sub.add_parser("doctor", help="show toolchain status")
     a, extra = ap.parse_known_args(argv)
     a.args = [x for x in extra if x != "--"]
@@ -205,6 +258,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         if not ok and ("--render" in a.args or "--render" in (argv or sys.argv)):
             rc = rc or 3          # rendering is only fatal when asked for (CI runners have no GPU)
         return rc
+    if a.cmd == "serve":
+        return serve_cosim(a.model, a.host, a.port, a.realtime, a.tls_cert, a.tls_key, a.client_ca, a.quiet)
     if a.cmd == "exec":
         tc = toolchain.find()
         if tc is None:

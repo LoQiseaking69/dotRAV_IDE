@@ -5,7 +5,7 @@
 .EXAMPLE
   # from the repo root, with Tulpa checked out next to it
   powershell -ExecutionPolicy Bypass -File installer\windows\build.ps1
-  powershell -File installer\windows\build.ps1 -TulpaSrc C:\src\Tulpa -Version 2.4.0 -Sign
+  powershell -File installer\windows\build.ps1 -TulpaSrc C:\src\Tulpa -Version 2.5.0 -Sign
 
 .NOTES
   Needs: Rust (cargo), Python 3.10+, Inno Setup 6 (iscc on PATH or default install dir).
@@ -17,7 +17,7 @@
 #>
 param(
   [string]$TulpaSrc = "..\Tulpa",
-  [string]$Version  = "2.4.0",
+  [string]$Version  = "2.5.0",
   [switch]$Sign,
   [switch]$Brand,
   [switch]$SkipTulpa
